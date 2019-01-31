@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 
 
 
 My homework 1 was done!
+=======
+>>>>>>> parent of b383acf... Add code_hw1.R and update homework1.txt
