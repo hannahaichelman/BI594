@@ -1,0 +1,410 @@
+---
+title: "Gene Ontology and Venn Diagrams"
+author: "Hannah Aichelman, Ishrat Chowdhury and Daniel Wuitchik"
+date: '2019-04-03'
+output: html_document
+---
+####Here we explore the relationships between our two experiments, as well as perform gene ontology analyses. 
+
+Libraries used
+```{r warning=FALSE}
+library(dplyr)
+library(gplots)
+library(VennDiagram)
+library(ggplot2)
+library(cowplot)
+```
+Version control
+```{r}
+sessionInfo()
+```
+
+Read in our result tables and isolate gene lists that significant in each experiment. 
+
+```{r cache=TRUE}
+hot = read.csv("tables/hot_results.csv") 
+hot = row.names(hot[hot$padj<0.05 & !is.na(hot$padj),])
+freezing = read.csv("tables/freezing_results.csv") 
+freezing = row.names(freezing[freezing$padj<0.05 & !is.na(freezing$padj),])
+```
+
+
+All genes (up and down) shared venn diagram
+```{r cache=TRUE}
+
+all_shared = list("Hot" = hot, "Freezing" = freezing)
+    prettyvenn=venn.diagram(
+      x = all_shared,
+      filename=NULL,
+      col = "transparent",
+      fill = c("coral", "turquoise"),
+      alpha = 0.5,
+      # label.col = c("darkred", "white", "darkgreen", "white", "white", "white", "blue4"),
+      cex = 2.5,
+      fontfamily = "sans",
+      fontface = "bold",
+      cat.default.pos = "text",
+      cat.col = "black",
+      cat.cex = 2.5,
+      cat.fontfamily = "sans",
+      cat.dist = c(0.08, 0.08),
+      cat.pos = 1
+    );
+grid.draw(prettyvenn)
+```
+
+Up regulated genes
+
+```{r}
+hot = read.csv("tables/hot_results.csv") 
+freezing = read.csv("tables/freezing_results.csv") 
+hot = row.names(hot[hot$padj < 0.05 &
+         !is.na(hot$padj) &
+         hot$log2FoldChange > 0, ])
+freezing= row.names(freezing[freezing$padj < 0.05 &
+              !is.na(freezing$padj) &
+              freezing$log2FoldChange > 0, ])
+
+up = list("Hot" = hot, "Freezing" = freezing)
+    prettyvenn=venn.diagram(
+      x = up,
+      filename=NULL,
+      col = "transparent",
+      fill = c("coral", "turquoise"),
+      alpha = 0.5,
+      # label.col = c("darkred", "white", "darkgreen", "white", "white", "white", "blue4"),
+      cex = 2.5,
+      fontfamily = "sans",
+      fontface = "bold",
+      cat.default.pos = "text",
+      cat.col = "black",
+      cat.cex = 2.5,
+      cat.fontfamily = "sans",
+      cat.dist = c(0.08, 0.08),
+      cat.pos = 1
+    );
+grid.draw(prettyvenn)
+
+
+```
+
+Down regulated
+```{r}
+hot = read.csv("tables/hot_results.csv") 
+freezing = read.csv("tables/freezing_results.csv") 
+hot = row.names(hot[hot$padj < 0.05 &
+         !is.na(hot$padj) &
+         hot$log2FoldChange < 0, ])
+freezing= row.names(freezing[freezing$padj < 0.05 &
+              !is.na(freezing$padj) &
+              freezing$log2FoldChange < 0, ])
+down = list("Hot" = hot, "Freezing" = freezing)
+    prettyvenn=venn.diagram(
+      x = down,
+      filename=NULL,
+      col = "transparent",
+      fill = c("coral", "turquoise"),
+      alpha = 0.5,
+      # label.col = c("darkred", "white", "darkgreen", "white", "white", "white", "blue4"),
+      cex = 2.5,
+      fontfamily = "sans",
+      fontface = "bold",
+      cat.default.pos = "text",
+      cat.col = "black",
+      cat.cex = 2.5,
+      cat.fontfamily = "sans",
+      cat.dist = c(0.08, 0.08),
+      cat.pos = 1
+    );
+grid.draw(prettyvenn)
+
+
+
+```
+
+## GO analyses
+
+This is a MWU gene ontology analyses. We are using -log(pvalue) to create a delta rank, and also log fold change to inform directionality of expression. This input was created in the last section. It's important to note that excel saves the .csv file that's readable for this script, and not R. I have no idea why, but suspect it has to do with regional characters set by my r system environment.
+
+### Freezing CC
+```{r}
+input="freezing_go_input.csv" # two columns of comma-separated values: gene id, continuous measure of significance. To perform standard GO enrichment analysis based on Fisher's exact test, use binary measure (0 or 1, i.e., either sgnificant or not).
+goAnnotations="wh_host_final_iso2go.tab" # two-column, tab-delimited, one line per gene, multiple GO terms separated by semicolon. If you have multiple lines per gene, use nrify_GOtable.pl prior to running this script.
+goDatabase="go.obo" # download from http://www.geneontology.org/GO.downloads.ontology.shtml
+goDivision="CC" # either MF, or BP, or CC
+source("gomwu.functions.R")
+```
+
+```{r cache=TRUE}
+gomwuStats(input, goDatabase, goAnnotations, goDivision,
+	perlPath="perl", # replace with full path to perl executable if it is not in your system's PATH already
+	largest=0.1,  # a GO category will not be considered if it contains more than this fraction of the total number of genes
+	smallest=5,   # a GO category should contain at least this many genes to be considered
+	clusterCutHeight=0.25, # threshold for merging similar (gene-sharing) terms. See README for details.
+#	Alternative="g" # by default the MWU test is two-tailed; specify "g" or "l" of you want to test for "greater" or "less" instead. 
+#	Module=TRUE,Alternative="g" # un-remark this if you are analyzing a SIGNED WGCNA module (values: 0 for not in module genes, kME for in-module genes). In the call to gomwuPlot below, specify absValue=0.001 (count number of "good genes" that fall into the module)
+#	Module=TRUE # un-remark this if you are analyzing an UNSIGNED WGCNA module 
+)
+# do not continue if the printout shows that no GO terms pass 10% FDR.
+
+```
+Modify levels to adjust FDR cutoffs displayed. Smaller values are useful for displaying less GO terms. 
+```{r cache=TRUE}
+freezing_cc_results=gomwuPlot(input,goAnnotations,goDivision,
+#	absValue=-log(0.05,10),  # genes with the measure value exceeding this will be counted as "good genes". Specify absValue=0.001 if you are doing Fisher's exact test for standard GO enrichment or analyzing a WGCNA module (all non-zero genes = "good genes").
+	absValue=1,
+	level1=0.01, # FDR threshold for plotting. Specify level1=1 to plot all GO categories containing genes exceeding the absValue.
+	level2=0.001, # FDR cutoff to print in regular (not italic) font.
+	level3=0.0001, # FDR cutoff to print in large bold font.
+	txtsize=1.2,    # decrease to fit more on one page, or increase (after rescaling the plot so the tree fits the text) for better "word cloud" effect
+	treeHeight=0.5, # height of the hierarchical clustering tree
+#	colors=c("dodgerblue2","firebrick1","skyblue","lightcoral") # these are default colors, un-remar and change if needed
+)
+write.csv(freezing_cc_results, "freezing_cc.csv")
+```
+
+
+# Freezing MF
+
+```{r}
+goDivision="MF" # either MF, or BP, or CC
+```
+
+```{r cache=TRUE}
+gomwuStats(input, goDatabase, goAnnotations, goDivision,
+	perlPath="perl", # replace with full path to perl executable if it is not in your system's PATH already
+	largest=0.1,  # a GO category will not be considered if it contains more than this fraction of the total number of genes
+	smallest=5,   # a GO category should contain at least this many genes to be considered
+	clusterCutHeight=0.25, # threshold for merging similar (gene-sharing) terms. See README for details.
+#	Alternative="g" # by default the MWU test is two-tailed; specify "g" or "l" of you want to test for "greater" or "less" instead. 
+#	Module=TRUE,Alternative="g" # un-remark this if you are analyzing a SIGNED WGCNA module (values: 0 for not in module genes, kME for in-module genes). In the call to gomwuPlot below, specify absValue=0.001 (count number of "good genes" that fall into the module)
+#	Module=TRUE # un-remark this if you are analyzing an UNSIGNED WGCNA module 
+)
+# do not continue if the printout shows that no GO terms pass 10% FDR.
+
+```
+
+```{r cache=TRUE}
+freezing_mf_results=gomwuPlot(input,goAnnotations,goDivision,
+#	absValue=-log(0.05,10),  # genes with the measure value exceeding this will be counted as "good genes". Specify absValue=0.001 if you are doing Fisher's exact test for standard GO enrichment or analyzing a WGCNA module (all non-zero genes = "good genes").
+	absValue=1,
+	level1=0.01, # FDR threshold for plotting. Specify level1=1 to plot all GO categories containing genes exceeding the absValue.
+	level2=0.001, # FDR cutoff to print in regular (not italic) font.
+	level3=0.0001, # FDR cutoff to print in large bold font.
+	txtsize=1.2,    # decrease to fit more on one page, or increase (after rescaling the plot so the tree fits the text) for better "word cloud" effect
+	treeHeight=0.5, # height of the hierarchical clustering tree
+#	colors=c("dodgerblue2","firebrick1","skyblue","lightcoral") # these are default colors, un-remar and change if needed
+)
+write.csv(freezing_cc_results, "freezing_mf.csv")
+```
+# Freezing BP
+```{r}
+goDivision="BP" # either MF, or BP, or CC
+```
+
+```{r cache=TRUE}
+gomwuStats(input, goDatabase, goAnnotations, goDivision,
+	perlPath="perl", # replace with full path to perl executable if it is not in your system's PATH already
+	largest=0.1,  # a GO category will not be considered if it contains more than this fraction of the total number of genes
+	smallest=5,   # a GO category should contain at least this many genes to be considered
+	clusterCutHeight=0.25, # threshold for merging similar (gene-sharing) terms. See README for details.
+#	Alternative="g" # by default the MWU test is two-tailed; specify "g" or "l" of you want to test for "greater" or "less" instead. 
+#	Module=TRUE,Alternative="g" # un-remark this if you are analyzing a SIGNED WGCNA module (values: 0 for not in module genes, kME for in-module genes). In the call to gomwuPlot below, specify absValue=0.001 (count number of "good genes" that fall into the module)
+#	Module=TRUE # un-remark this if you are analyzing an UNSIGNED WGCNA module 
+)
+# do not continue if the printout shows that no GO terms pass 10% FDR.
+
+```
+
+```{r cache=TRUE}
+freezing_bp_results=gomwuPlot(input,goAnnotations,goDivision,
+#	absValue=-log(0.05,10),  # genes with the measure value exceeding this will be counted as "good genes". Specify absValue=0.001 if you are doing Fisher's exact test for standard GO enrichment or analyzing a WGCNA module (all non-zero genes = "good genes").
+	absValue=1,
+	level1=0.0001, # FDR threshold for plotting. Specify level1=1 to plot all GO categories containing genes exceeding the absValue.
+	level2=0.00001, # FDR cutoff to print in regular (not italic) font.
+	level3=0.000001, # FDR cutoff to print in large bold font.
+	txtsize=1.2,    # decrease to fit more on one page, or increase (after rescaling the plot so the tree fits the text) for better "word cloud" effect
+	treeHeight=0.5, # height of the hierarchical clustering tree
+#	colors=c("dodgerblue2","firebrick1","skyblue","lightcoral") # these are default colors, un-remar and change if needed
+)
+write.csv(freezing_cc_results, "freezing_bp.csv")
+```
+
+
+# Hot CC
+
+```{r}
+input="hot_go_input.csv" # two columns of comma-separated values: gene id, continuous measure of significance. To perform standard GO enrichment analysis based on Fisher's exact test, use binary measure (0 or 1, i.e., either sgnificant or not).
+goAnnotations="wh_host_final_iso2go.tab" # two-column, tab-delimited, one line per gene, multiple GO terms separated by semicolon. If you have multiple lines per gene, use nrify_GOtable.pl prior to running this script.
+goDatabase="go.obo" # download from http://www.geneontology.org/GO.downloads.ontology.shtml
+goDivision="CC" # either MF, or BP, or CC
+source("gomwu.functions.R")
+```
+
+```{r cache=TRUE}
+gomwuStats(input, goDatabase, goAnnotations, goDivision,
+	perlPath="perl", # replace with full path to perl executable if it is not in your system's PATH already
+	largest=0.1,  # a GO category will not be considered if it contains more than this fraction of the total number of genes
+	smallest=5,   # a GO category should contain at least this many genes to be considered
+	clusterCutHeight=0.25, # threshold for merging similar (gene-sharing) terms. See README for details.
+#	Alternative="g" # by default the MWU test is two-tailed; specify "g" or "l" of you want to test for "greater" or "less" instead. 
+#	Module=TRUE,Alternative="g" # un-remark this if you are analyzing a SIGNED WGCNA module (values: 0 for not in module genes, kME for in-module genes). In the call to gomwuPlot below, specify absValue=0.001 (count number of "good genes" that fall into the module)
+#	Module=TRUE # un-remark this if you are analyzing an UNSIGNED WGCNA module 
+)
+# do not continue if the printout shows that no GO terms pass 10% FDR.
+
+```
+
+```{r cache=TRUE}
+hot_cc_results=gomwuPlot(input,goAnnotations,goDivision,
+#	absValue=-log(0.05,10),  # genes with the measure value exceeding this will be counted as "good genes". Specify absValue=0.001 if you are doing Fisher's exact test for standard GO enrichment or analyzing a WGCNA module (all non-zero genes = "good genes").
+	absValue=1,
+	level1=0.01, # FDR threshold for plotting. Specify level1=1 to plot all GO categories containing genes exceeding the absValue.
+	level2=0.001, # FDR cutoff to print in regular (not italic) font.
+	level3=0.0001, # FDR cutoff to print in large bold font.
+	txtsize=1.2,    # decrease to fit more on one page, or increase (after rescaling the plot so the tree fits the text) for better "word cloud" effect
+	treeHeight=0.5, # height of the hierarchical clustering tree
+#	colors=c("dodgerblue2","firebrick1","skyblue","lightcoral") # these are default colors, un-remar and change if needed
+)
+write.csv(freezing_cc_results, "hot_cc.csv")
+```
+
+#Hot MF 
+
+```{r}
+goDivision="MF" 
+```
+
+```{r cache=TRUE}
+gomwuStats(input, goDatabase, goAnnotations, goDivision,
+	perlPath="perl",
+	largest=0.1,  
+	smallest=5,   
+	clusterCutHeight=0.25, 
+)
+```
+
+```{r cache=TRUE}
+hot_mf_results=gomwuPlot(input,goAnnotations,goDivision,
+	absValue=1,
+	level1=0.01,
+	level2=0.001, 
+	level3=0.0001, 
+	txtsize=1.2,    
+	treeHeight=0.5, 
+)
+write.csv(freezing_cc_results, "hot_MF.csv")
+```
+
+#Hot BP
+
+```{r}
+goDivision="BP" 
+```
+
+```{r cache=TRUE}
+gomwuStats(input, goDatabase, goAnnotations, goDivision,
+	perlPath="perl",
+	largest=0.1,  
+	smallest=5,   
+	clusterCutHeight=0.25, 
+)
+```
+
+```{r cache=TRUE}
+hot_bp_results=gomwuPlot(input,goAnnotations,goDivision,
+	absValue=1,
+	level1=0.01,
+	level2=0.001, 
+	level3=0.0001, 
+	txtsize=1.2,    
+	treeHeight=0.5, 
+)
+write.csv(freezing_cc_results, "hot_BP.csv")
+```
+
+
+# Delta ranks 
+Here we take the delta ranks from the two experiments and plot them. Those that are in the top right corner are both enriched in the top part of delta ranks, and those that are in the bottom left quadrant are both enriched at the bottom of the list. 
+
+##CC
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+
+hot=read.table("MWU_CC_hot_go_input.csv",header=T)
+freezing=read.table("MWU_CC_freezing_go_input.csv",header=T)
+goods=intersect(data1$term,data2$term)
+data1=data1[data1$term %in% goods,]
+data2=data2[data2$term %in% goods,]
+
+plot = ress %>%
+  filter(p.adj.x < 0.1) %>%
+  filter(p.adj.y < 0.1) %>%
+  mutate(colour = (delta.rank.x+delta.rank.y))
+  
+ggplot(plot, aes(delta.rank.x, delta.rank.y, label = name.y), color = colour) +
+  #geom_jitter() +
+  geom_text(aes(color = colour)) + 
+  scale_color_gradient(low = "blue", high = "red") +
+  labs( x = "Hot",
+        y = "Freezing") +
+  labs(title = "Delta-ranks between experiments") +
+  geom_vline(xintercept = 0, linetype = 2) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  theme_cowplot()
+```
+
+##MF
+```{r}
+hot=read.table("MWU_MF_hot_go_input.csv",header=T)
+freezing=read.table("MWU_MF_freezing_go_input.csv",header=T)
+goods=intersect(data1$term,data2$term)
+data1=data1[data1$term %in% goods,]
+data2=data2[data2$term %in% goods,]
+
+plot = ress %>%
+  filter(p.adj.x < 0.1) %>%
+  filter(p.adj.y < 0.1) %>%
+  mutate(colour = (delta.rank.x+delta.rank.y))
+  
+ggplot(plot, aes(delta.rank.x, delta.rank.y, label = name.y), color = colour) +
+  #geom_jitter() +
+  geom_text(aes(color = colour)) + 
+  scale_color_gradient(low = "blue", high = "red") +
+  labs( x = "Hot",
+        y = "Freezing") +
+  labs(title = "Delta-ranks between experiments") +
+  geom_vline(xintercept = 0, linetype = 2) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  theme_cowplot()
+```
+##BP
+```{r}
+hot=read.table("MWU_BP_hot_go_input.csv",header=T)
+freezing=read.table("MWU_BP_freezing_go_input.csv",header=T)
+goods=intersect(data1$term,data2$term)
+data1=data1[data1$term %in% goods,]
+data2=data2[data2$term %in% goods,]
+
+plot = ress %>%
+  filter(p.adj.x < 0.1) %>%
+  filter(p.adj.y < 0.1) %>%
+  mutate(colour = (delta.rank.x+delta.rank.y))
+  
+ggplot(plot, aes(delta.rank.x, delta.rank.y, label = name.y), color = colour) +
+  #geom_jitter() +
+  geom_text(aes(color = colour)) + 
+  scale_color_gradient(low = "blue", high = "red") +
+  labs( x = "Hot",
+        y = "Freezing") +
+  labs(title = "Delta-ranks between experiments") +
+  geom_vline(xintercept = 0, linetype = 2) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  theme_cowplot()
+```
+
+
+From these plots we can explore the biology assigned the expression data!

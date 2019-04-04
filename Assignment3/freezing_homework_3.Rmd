@@ -1,0 +1,259 @@
+---
+title: "Homework 3 - Freezing"
+authors: "Hannah Aichelman, Ishrat Chowdhury and Daniel Wuitchik"
+date: '2019-04-02'
+output: html_document
+---
+
+# Freezing 
+#### A story about chilling down <i> Astrangia poculata </i> 
+
+The gene expression dataset analyzed here comes from a project that examined the physiological and transcriptomic effects of cooling the temperate coral <i>Astrangia poculata</i>. <i>Astrangia poculata</i> is a facultatively symbiotic coral, meaning that it exists in the wild both with and without symbionts. However, only aposymbiotic corals were used in the experiment described here. Here, corals were either cooled from 22°C to 6°C or maintained at 22°C (control) over the course of 15 days, and were sampled for gene expression on day 15. Physiology measured (polyp extension) over the course of the experiment demonstrated that the corals pulled in their polyps in response to cooling temperatures, a response that is similar to a phenomenon known as "quiescence". Quiescence is exhibited by <i>Astrangia poculata</i> during the winter, and is a mechanism to conserve resources in extremely cold temperatures. Here, we use the program DESeq2 to quantify differential gene expression of corals in the control and cooled (also referred to as "freezing" below) corals. 
+
+
+First we load appropriate libraries 
+
+```{r message=FALSE, warning=FALSE}
+library(tidyr)
+library(plyr)
+library(dplyr)
+library(DESeq2)
+library(ggplot2)
+library(affycoretools)
+library(arrayQualityMetrics)
+library(genefilter)
+library(DESeq)
+library(cowplot)
+library(readr)
+library(RColorBrewer)
+library(gplots)
+library(reshape2)
+library(knitr)
+```
+
+
+
+Here is our session info, containing information about versions used
+
+```{r}
+sessionInfo()
+```
+
+
+#### Let's read in the raw reads for freezing 
+These raw counts come from a previous step using a custom perl script, full details can be found here: https://github.com/z0on/tag-based_RNAseq
+```{r, cache=TRUE}
+counts = read.delim("freezing_raw.txt", sep = "\t")
+    row.names(counts) = counts$X
+    counts$X = NULL
+  colnames(counts) = substring(colnames(counts), 1, 3) # removed the junk in names
+  write.csv(counts, "tables/freezing_raw_counts.csv")
+```
+
+Set up experimental design matrix
+```{r,cache=TRUE}
+treatment = as.factor(sapply(strsplit(colnames(counts), split = ""), "[[", 1)) %>%
+            revalue(c("C" = "control", "F" = "freezing"))
+genotype  = as.factor(sapply(strsplit(colnames(counts), split = ""), "[[", 2))
+
+expDesign = data.frame(treatment, genotype)
+            expDesign$sample = colnames(counts)
+            write.csv(expDesign, "tables/freezing_expDesign.csv", row.names = F)
+```
+
+Descriptive Summary stats 
+
+```{r}
+stats.per.sample = data.frame(t(do.call(cbind, lapply(counts, summary))))
+      stats.per.sample$libsum = apply(counts, 2, sum) ## libsum
+      stats.per.sample$perc05 = apply(counts, 2, quantile, 0.05)
+      stats.per.sample$perc10 = apply(counts, 2, quantile, 0.10)
+      stats.per.sample$perc90 = apply(counts, 2, quantile, 0.90)
+      stats.per.sample$perc95 = apply(counts, 2, quantile, 0.95)
+      stats.per.sample$zeros = apply(counts==0, 2, sum)
+      stats.per.sample$percent.zeros = 100*stats.per.sample$zeros/nrow(counts)
+      write.csv(stats.per.sample, file = "summary_descriptives/freezing_host_summary_table.csv", quote = FALSE)
+      
+kable(stats.per.sample, caption = "Summary Description of Reads to Isogroups")
+```
+
+Conduct array quality metrics to identify outliers  
+
+```{r, cache=TRUE}
+real=newCountDataSet(counts,expDesign) 
+real=estimateSizeFactors(real)
+```
+
+Here is a plot of our size factors, which DESeq will use to normalize these data further downstream 
+```{r}
+plot(sort(sizeFactors(real))) 
+```
+
+####Now, here is oldschool DESeq to look for outliers 
+
+This creates a directory with a bunch of output figures for you to explore if there are outliers. All of these samples passed the array quality metric thresholds. We therefore proceeded with our analyses without removing any samples. 
+
+```{r message=FALSE, warning=FALSE, cache=TRUE}
+cds=estimateDispersions(real,method="blind")
+vsdBlind=varianceStabilizingTransformation(cds)
+arrayQualityMetrics(vsdBlind,intgroup=c("treatment"), force=TRUE, outdir = "freezing_arrayQualityMetrics") # this makes a directory "arrayQualityMetrics" and outputs various reports on outliers
+```
+# Moving on to differential expression! 
+Perform a Wald test in DESeq2 (now the new version) doing a pairwise comparison between freezing and control (aka the effect of treatment, denoted as design = ~ treatment below)
+```{r message=FALSE, warning=FALSE, cache=TRUE}
+dds = DESeqDataSetFromMatrix(countData = counts, colData = expDesign, design = ~ treatment)
+dds = DESeq(dds)
+results = results(dds)
+```
+
+Let's check to see if we set up our contrast correctly. We should have the treatment condition first and the control second in the log2 fold change (MLE) output. 
+
+```{r, cache=TRUE}
+head(results)
+```
+Looks good!
+
+Now, look at the normalization that DESeq2 did to our data
+
+```{r, cache=TRUE}
+norm.counts = counts(dds, normalized = TRUE) # these are the counts DESeq uses
+              write.csv(norm.counts, "tables/freezing_normalized_counts.csv")
+              
+norm.counts.stats = data.frame(
+  min = apply(norm.counts, 2, min),
+  mean = apply(norm.counts, 2, mean),
+  median = apply(norm.counts, 2, median), 
+  max = apply(norm.counts, 2, max),
+  zeros = apply(norm.counts == 0, 2, sum), 
+  percent.zeros = 100* apply(norm.counts == 0, 2, sum) / nrow(norm.counts) 
+)
+
+kable(norm.counts.stats, caption = "DESeq2 Normalized Counts Summary")
+```
+
+Lets do a rlogged transformations, which is useful for WGCNA or PCA type analyses 
+
+```{r, cache=TRUE}
+rlogged = rlogTransformation(dds, blind = TRUE)
+  hist(assay(rlogged))
+```
+
+Sample by distance heatmap 
+This shows that our freezing (first letter is F in ID) and control (first letter is C in ID) corals are grouping together based on gene expression.
+```{r, cache=TRUE}
+sampleDists <- as.matrix(dist(t(assay(rlogged))))
+heatmap.2(as.matrix(sampleDists), key=F, trace="none",
+          col=colorpanel(100, "black", "white"),
+          margin=c(10, 10))
+```
+
+Build the actual results table 
+The order of tretments  is really important here. Putting "freezing" before "control" means that the gene expression of corals in the freezing treatment will be compared to control, which is what we want. <b> Make sure you put the control group second </b>
+
+In the output table, negative log2FoldChange indicates downregulation in freezing compared to control, and positive log2FoldChagne indicates upregulation.
+
+```{r, cache=TRUE}
+results_FvsC = results(dds, contrast = c("treatment", "freezing", "control")) 
+head(results_FvsC)
+```
+####Summary of DEGs with FDR < 0.1
+We can see how many are up regulated and how many are down regulated (and what percent of the genome)
+3.7% of genes (1429 genes) are upregulated and 6.3% of genes (2447 genes, almost double) are downregulated. 
+```{r, cache=TRUE}
+summary(results_FvsC)
+```
+
+How about those for a FDR of < 0.05? Since there are enough genes to explore here, we use this for subsequent anaylses.
+
+```{r, cache = TRUE}
+results_FvsC05 = results(dds, contrast = c("treatment", "freezing", "control"), alpha = 0.05) 
+summary(results_FvsC05)
+write.csv(results_FvsC05, file="tables/freezing_results.csv")
+```
+
+MA plot because people like them, but besides looking neat we find them not overly informative 
+
+```{r, cache=TRUE}
+DESeq2::plotMA(results_FvsC, main = "Freezing vs Control")
+```
+
+Now, add gene annotations so we can tell who the differentially expressed genes are.
+
+```{r, cache=TRUE}
+iso2gene = read.delim("wh_host_final_iso2gene.tab", sep = "\t")
+filtered = read.csv("tables/freezing_results.csv") %>% as_tibble() %>%
+  filter(padj < 0.05) %>%
+  merge(iso2gene, by.x = "X", by.y = "Iso")
+write.csv(filtered, "tables/freezing_gene_list.csv", row.names = F)
+
+head(filtered)
+```
+
+##Heatmaps
+
+We plotted the z scores, as we found that heatmap 2 has an easier time clustering them. 
+The heatmap shows that our samples are clustering by treatment (F=freezing, C=control). Upregulation indicated by warmer colors, downregulation indicated by cooler colors.
+
+```{r, cache=TRUE}
+norm_counts = read.csv("tables/normalized_counts.csv")
+hm = read.csv("tables/freezing_results.csv") %>% as_tibble() %>%
+  filter(padj < 0.001) %>% # only want the most DEGs
+  select(X) %>%
+  merge(norm_counts, by.x = "X", by.y = "X")  # turn into a countdatafile
+  row.names(hm) = hm$X
+  hm$X = NULL
+
+## Turning into z-score table
+hm.z = data.matrix(hm)
+hm.z = sweep(hm.z, 1L, rowMeans(hm.z), check.margin = FALSE)
+hm.z.sx = apply(hm.z, 1L, sd)
+hm.z = sweep(hm.z, 1L, hm.z.sx, "/", check.margin = FALSE)
+hm.z = data.matrix(hm.z)
+
+colour = colorRampPalette(rev(c("chocolate1","#FEE090","grey10", "cyan3","cyan")))(100)
+heatmap.2(hm.z, col = colour, Rowv = TRUE, Colv = TRUE, scale = "row", 
+          dendrogram = "both",
+          trace = "none", 
+          margin = c(5,15))
+
+
+```
+
+PCA of genotypes
+No obvious patterns by genotype
+```{r cache=TRUE}
+DESeq2::plotPCA(rlogged, returnData = TRUE, intgroup = c("treatment", "genotype") ) %>% 
+  ggplot(aes(x = PC1, y = PC2)) +
+  geom_point(aes(colour = genotype)) +
+  theme_cowplot()
+```
+
+PCA colouring of treatment 
+Clear distinction between control and freezing treatments
+```{r cache=TRUE}
+cols = c("control" = "grey", "freezing" = "turquoise3")
+DESeq2::plotPCA(rlogged, returnData = TRUE, intgroup = c("treatment", "genotype") ) %>% 
+  ggplot(aes(x = PC1, y = PC2)) +
+  geom_point(aes(colour = treatment)) +
+  stat_ellipse(geom = "polygon", alpha = 1/10, aes(fill = treatment)) +
+  scale_colour_manual(values = cols) +
+  scale_fill_manual(values = cols) +
+  theme_cowplot()
+```
+
+The next step is Gene Ontology. Strangely, we had issues with this .csv file and could not get the output to load in to GO_MWU. This step can be found in a separate .Rmd document. 
+
+```{r cache=TRUE}
+results = read.csv("tables/freezing_results.csv")
+go_input = results %>%
+  mutate(mutated_p = -log(pvalue)) %>%
+  mutate(mutated_p_updown = ifelse(log2FoldChange < 0, mutated_p*-1, mutated_p*1)) %>%
+  select(X, mutated_p_updown) %>%
+  na.omit()
+
+colnames(go_input) = NULL
+
+write.csv(go_input, "freezing_go_input.csv", row.names = FALSE)
+```
+
+In conclusion, we found that the control and freezing treatments had different gene expression profiles. In general, corals in the freezing treatment downregulated more genes than they upregulated. This could make biological sense, especially in the context of metabolic/organism depression under colder temperatures. Additionally, the gene expression response observed here in the freezing treatment could be indicative of the gene expression signature of "quiescence". 
