@@ -1,0 +1,737 @@
+---
+title: "SymPortal: Analytical Tool to Resolve Symbiodiniaceae Taxa"
+author: "Hannah Aichelman"
+date: "May 2, 2019"
+output: html_document
+---
+
+
+###Introduction
+For my final project, I re-analyzed data published by Baumann et al. (2017) using a different method, called SymPortal. Baumann et al. (2017) studied the symbiont communities from three species of corals on the Mesoamerican Barrier Reef System (<i>Siderastrea siderea</i>, <i>Pseudodiploria strigosa</i>, and <i>Siderastrea radians</i>). These three species were sampled from three distinct thermal regimes (highTP, modTP, and lowTP) at each of four different latitudes. The three thermal regimes follow an inshore-offshore gradient along which average temperatures and thermal variation decline (described further in Baumann et al. [2016]). The authors used metabarcoding of the ITS-2 locus to investigate changes in Symbiodiniaceae genetic diversity across these three species and across thermal environment. Baumann et al. (2017) utilized a bioinformatic pipeline called CD-HIT-OTU to determine operational taxonomic units (OTUs), which were blasted against the GenBank database to identify which Symbiodiniaceae lineage was represented by each OTU.  Here, I take this same sequencing data and analyze it using a new method, called SymPortal. SymPortal considers the  intragenomic diversity that is common in coral-associated Symbiodiniaceae to accomplish a higher-resolution identification of symbiont types. Essentially, SymPortal searches sets of Symbiodiniaceae ITS2 sequences from coral samples for sets of ITS2 sequences that are found across multiple samples. These sequences across samples, called ITS2 types, are essentially representative of a putative taxa.
+
+The aim of this project was two-fold: 1) get the new SymPortal python-based pipeline working on my local computer to facilitate future Davies Lab usage, and 2) see if the results of Baumann et al. (2016) change at all with the new pipeline. This document walks the reader through the full process of getting SymPortal set up locally and analyzing a dataset using this platform. Additionally, the last section of the document takes the counts file outputted by SymPortal and uses it in mcmcotu to produce PCAs and conduct further analyses.
+
+
+###Methods
+I: Getting SymPortal set up on your local computer (terminal/python environment)  
+
+II: Running your ITS2 sequencing data through SymPortal to produce counts file (terminal/python environment)  
+
+III: Take counts file through mcmcOTU pipeline for PCAs and subsequent analyses (R environment)  
+
+####Methods Part I: Getting Symportal set up on your local computer
+Note that you can also work with SymPortal by submitting your raw sequencing data through SymPortal.org. The instructions below are to run the same analysis, just on your local computer.  
+
+SymPortal has an excellent Github page, which is a great place to read more about the logic of this approach: https://github.com/didillysquat/SymPortal_framework/wiki/The-SymPortal-logic  
+
+Additionally, Ben Hume (the creator of SymPortal) is very responsive to inquiries and is willing to help out, his contact info is listed on this github page.
+
+To get SymPortal working on my local machine, I started with the instructions on the SymPortal setup page, found here: https://github.com/didillysquat/SymPortal_framework/wiki/SymPortal-setup  
+
+The full instructions and steps I took are listed below, but for any additional information reference the SymPortal-setup page
+
+
+####Step 1.1: Obtain a copy of the code
+Download the latest release of SymPortal from here: https://github.com/didillysquat/SymPortal_framework/releases/tag/v0.3.8
+
+For reference, I am running version 0.3.8 here.
+
+Navigate into the SymPortal directory once you have downloaded and moved to where you want to work with it.
+
+####Step 1.2: Configure settings.py
+Change the name of settings_blank.py script to settings.py. Then nano the file and enter a bespoke secret key. These unique keys can be generated here: https://www.miniwebtool.com/django-secret-key-generator/
+```{bash eval=FALSE}
+$ mv settings_blank.py settings.py
+
+$ nano settings.py 
+```
+
+Now configure sp_config.py file by replacing user_name and user_email fields within the file with your specific information.
+```{bash eval=FALSE}
+$ nano sp_config.py 
+```
+
+####Step 1.3: Set up the python environment
+SymPortal is a python-based program, so this step involves getting your python environment set up exactly so that SymPortal works and is happy. This part of the process was an incredibly frustrating one, involving version control issues of various python packages. SymPortal suggests, and I found, that using a Conda environment specifically for this program was the best way to set it up. A Conda environment (read more here: https://conda.io/en/latest/) is essentially a virtual environment inside your terminal that lets you download specific versions of packages and python. This way, you can run programs specifically in that environment knowing that version control is exactly as SymPortal requires it. The steps below are how I set up a Conda environment specifically for running SymPortal, and then installed all necessary packages. 
+
+First, download Anaconda from this site:
+https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html
+
+Add anaconda to path:
+```{bash eval=FALSE}
+$ export PATH=~/anaconda/bin:$PATH
+```
+
+Then check path, note you should close terminal and re-open before it will recognize you updated your path
+```{bash eval=FALSE}
+$ source $PATH
+```
+
+Now, create a specific conda environment. The name you want to give it follows -n. BE SURE to install python version 3.6, just as I have below. 
+```{bash eval=FALSE}
+$ conda create -n symportal_python python=3.6
+```
+
+Then activate your conda environment.  
+```{bash eval=FALSE}
+$ conda activate symportal_python
+```
+
+Your terminal prompt will now change to look something like what I have in the next chunk of code below, where the name of your conda environment precedes your prompt. I have excluded the terminal prompt from the rest of the instructions because it gets a bit distracting (code you should enter into your command line is instead preceded by $), but note here that this is what it always looks like when you are working within the environment you set up. ALWAYS 'conda activate' your SymPortal environment before doing any analyses, etc.  
+
+The next commands install numpy and the packages listed in the requirements.txt folder from the SymPortal download. Note that you have to install numpy first though. Stupid package version control. Also more details on the SymPortal setup site if you're curious.
+
+```{bash eval=FALSE}
+(symportal_python) 2019-04-12 13:45 /SymPortal_framework-0.3.8/--% python3 -m pip install numpy
+(symportal_python) 2019-04-12 13:45 /SymPortal_framework-0.3.8/--% python3 -m pip install -r requirements.txt 
+```
+
+####Step1.4: Create the SymPortal database
+Simple, one step:
+
+```{bash eval=FALSE}
+$ python3.6 manage.py migrate
+```
+
+####Step1.5: Populate the local database with SymPortal's reference sequences
+In the SymPortal database, only sequences defined as DIVs and therefore used to define ITS2 type profiles are named. Important to note here that running SymPortal locally will not make names for sequences that are unnamed, or not already in the database. It just assigns variants not in the database a numeric identifier. You should update, or re-populate, your local reference database with each new analysis.
+```{bash eval=FALSE}
+$ python3.6 populate_db_ref_seqs.py
+```
+
+####Step1.6: Third party dependencies
+SymPortal requires mothur (version=1.39.5) and BLAST+ executables (blastn, makeblastdb, version 2.6.0+) as third party programs. 
+
+Download programs from here, again it is really important that you get mothur 1.39.5:
+https://github.com/mothur/mothur/releases/tag/v1.39.5  
+
+ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST 
+
+Nano into your path
+```{bash eval=FALSE}
+$ nano ~/.bash_profile
+```
+And add the following text on new lines:
+```{bash}
+export PATH="$PATH:$HOME/mothur"
+export PATH="$PATH:$HOME/ncbi-blast-2.9.0+/bin"
+```
+
+This process can be different on different machines, might take some googling to get this right. 
+Check these third party dependencies to make sure they are in your path. Output should look like what is below the which commands here, but your specific path.
+```{bash eval=FALSE}
+$ which mothur
+/Users/hannahaichelman/mothur/mothur
+
+$ which blastn
+/Users/hannahaichelman/ncbi-blast-2.9.0+/bin/blastn
+```
+
+Now check that the programs are working properly by running the commands below, should see an output similar to what is pasted here.
+```{bash eval=FALSE}
+$ mothur -v
+Mac 
+Mothur version=1.41.3
+Release Date=1/30/19
+
+$ blastn -version
+blastn: 2.9.0+
+Package: blast 2.9.0, build Mar 11 2019 16:04:57
+
+$ makeblastdb -version
+blastn: 2.9.0+
+Package: blast 2.9.0, build Mar 11 2019 16:04:57
+```
+
+
+####Step 1.7: Check your installation
+Run the following command to make sure you have set up SymPortal correctly
+```{bash eval=FALSE}
+$ python3 -m tests.tests
+```
+
+The end of the output of this command should look something like:
+```{bash eval=FALSE}
+Plotting sample distances
+saving as .png
+Distance plots output to:
+/Users/hannahaichelman/Documents/BU/Courses/2019_Spring/EcolEvolGenomics/FinalProject_SymPortal/SymPortal_framework-0.3.0/outputs/analyses/1/2019-04-13_06-37-44.397740/between_sample_distances/C/2019-04-13_06-37-44.397740_between_sample_distances_clade_C.svg
+/Users/hannahaichelman/Documents/BU/Courses/2019_Spring/EcolEvolGenomics/FinalProject_SymPortal/SymPortal_framework-0.3.0/outputs/analyses/1/2019-04-13_06-37-44.397740/between_sample_distances/C/2019-04-13_06-37-44.397740_between_sample_distances_clade_C.png
+Cleaning up after previous data analysis test: 1
+Deleting /Users/hannahaichelman/Documents/BU/Courses/2019_Spring/EcolEvolGenomics/FinalProject_SymPortal/SymPortal_framework-0.3.0/outputs/analyses/1
+Cleaning up after previous data loading test: 1
+Deleting /Users/hannahaichelman/Documents/BU/Courses/2019_Spring/EcolEvolGenomics/FinalProject_SymPortal/SymPortal_framework-0.3.0/outputs/loaded_data_sets/1
+```
+
+
+####Step1.8: Test an example dataset
+This step is optional, but can help figure out any glitches in the setup before you run your actual data through the pipeline. You're following all of the steps you will with your own data, just using data provided by the SymPortal folks. 
+
+First, download the example dataset from here: https://drive.google.com/drive/folders/1qOZy7jb3leU_y4MtXFXxy-j1vOr1U-86
+
+Next, move this downloaded data file into your SymPortal directory, navigate into the SymPortal folder, make sure you have loaded your SymPortal conda environment, and then run the command below to load the data into the SymPortal framework's database (takes ~15 minutes)
+```{bash eval=FALSE}
+$ ./main.py --load /Users/hannahaichelman/Documents/BU/Courses/2019_Spring/EcolEvolGenomics/FinalProject_SymPortal/SymPortal_framework-0.3.0/smith_et_al_ISMEJ_example_data/ --data_sheet /Users/hannahaichelman/Documents/BU/Courses/2019_Spring/EcolEvolGenomics/FinalProject_SymPortal/SymPortal_framework-0.3.0/smith_et_al_ISMEJ_example_data/smith_et_al_meta_data_input.xlsx --num_proc 4 --name smith_testing
+```
+
+Check DataSet loadings:
+```{bash eval=FALSE}
+$ python main.py --display_data_sets
+
+2: smith_testing	2019-04-14_12-33-45.208785
+```
+
+Now run an analysis, the number after --analyse is the DataSet instance that has been loaded into the database.
+```{bash eval=FALSE}
+$ ./main.py --analyse 2 --name first_analysis --num_proc 3
+```
+
+And you can check the data analyses that are completed by running this command:
+```{bash eval=FALSE}
+$ ./main.py --display_analyses
+
+2: first_analysis	2019-04-16_07-57-58.467894
+```
+
+Now generate within clade, pairwise distances and PCoA
+
+Between samples:
+```{bash eval=FALSE}
+$ ./main.py --between_sample_distances 2 --bootstrap 100 --num_proc 3
+```
+
+Between ITS2 type profiles:
+```{bash eval=FALSE}
+$ ./main.py --between_type_distances 2 --data_analysis_id 2 --bootstrap 100 --num_proc 3
+```
+#####----This is the end of the SymPortal setup----
+
+####Part II: Running your ITS2 sequencing data through SymPortal to produce counts file
+Because Justin Baumann's (2017) samples included 16S and ITS2 data sequenced on the same samples in the same lane, the first step I had to do to prep the samples for SymPortal was separating out only ITS2 samples.  
+Download bbmap (https://sourceforge.net/projects/bbmap/) and then run the following commands:
+
+```{bash eval=FALSE}
+ls *1.fastq.trim.named | cut -d "." -f 1 > samples.list
+
+for file in $(cat samples.list); do  mv ${file}*1.fastq.trim.named ${file}_R1.fastq.trim.named; mv ${file}2*.fastq.trim.named ${file}_R2.fastq.trim.named; done 
+
+for file in $(cat samples.list); do ~/Downloads/bbmap/bbduk.sh in1=${file}_R1.fastq.trim.named in2=${file}_R2.fastq.trim.named ref=adaptors.fasta k=12 out1=${file}_R1_NoIll.fastq out2=${file}_R2_NoIll.fastq; done &>bbduk_NoIll.log
+
+for file in $(cat samples.list); do ~/Downloads/bbmap/bbduk.sh in1=${file}_R1_NoIll.fastq in2=${file}_R2_NoIll.fastq ftl=4 out1=${file}_R1_NoIll_No4N.fastq out2=${file}_R2_NoIll_No4N.fastq; done &>bbduk_No4N.log
+
+for file in $(cat samples.list); do ~/Downloads/bbmap/bbduk.sh in1=${file}_R1_NoIll_No4N.fastq in2=${file}_R2_NoIll_No4N.fastq restrictleft=21 k=10 literal=GTGAATTGCAGAACTCCGTG,CCTCCGCTTACTTATATGCTT outm1=${file}_R1_ITS.fastq outu1=${file}_R1_check.fastq outm2=${file}_R2_ITS.fastq outu2=${file}_R2_check.fastq; done &>bbduk_ITS.log
+```
+
+
+Now our sequences are ready for SymPortal...again, make sure that you have activated your SymPortal conda environment!
+
+First load data. An important note here is that the metadata file (which SymPortal recommend including) needs a specific file format. 
+A blank, correctly formatted metadata sheet can be found here: https://drive.google.com/file/d/1TNVreqCdqkoFNtCXVtmg8BgxWa4fclEY/view
+
+```{bash eval=FALSE}
+$ ./main.py --load /Users/hannahaichelman/Documents/BU/Courses/2019_Spring/EcolEvolGenomics/FinalProject_SymPortal/SymPortal_framework-0.3.8/ging_orig_files/ --data_sheet /Users/hannahaichelman/Documents/BU/Courses/2019_Spring/EcolEvolGenomics/FinalProject_SymPortal/SymPortal_framework-0.3.8/ging_orig_files/ging_meta_data_input.xlsx --num_proc 4 --name ging_test --debug
+```
+
+Check DataSet loadings:
+```{bash eval=FALSE}
+$ python3.6 main.py --display_data_sets
+
+2: ging_test	2019-04-22_11-21-49.276421
+```
+
+Now run an analysis on Justin's data:
+Again, here, the integer you give to --analyse is the id of the DataSet loading that is output above (2: ging_test means this is DataSet loading 2)
+
+```{bash eval=FALSE}
+$ ./main.py --analyse 2 --name ging_first_analysis --num_proc 3
+```
+
+And just like checking the data loading, you can check the DataAnalysis instances:
+```{bash eval=FALSE}
+$ ./main.py --display_analyses
+
+2: ging_first_analysis	2019-04-23_08-50-34.985059
+```
+
+Generate within clade, pairwise distances and PCoA
+```{bash eval=FALSE}
+$ ./main.py --between_sample_distances 2 --bootstrap 100 --num_proc 3
+
+$ ./main.py --between_type_distances 2 --data_analysis_id 2 --bootstrap 100 --num_proc 3
+```
+
+#####A few notes on SymPortal that I have found useful in thinking through this process
+As with everything else in this guide, there is lots more information included on the SymPortal github, but here are a few tips to get you started.  
+
+<i>Loading data:</i>
+
+Loading data into the SymPortal database performs quality control filtering of the sequencing data and converts the raw sequences into database objects.
+The data loading also outputs a counts table of ITS2 sequences returned from each of the DataSetSamples in the DataSet.
+Produces a plot visualizing the counts table (stacked bar plot for Dan, although it's pretty fugly).  
+
+Generates clade separated, between sample pairwise distance matrices (BrayCurtis-based by default).  
+
+Generates a PCoA on the distance matrices, returns coordinates of the principal components for each DataSetSample.  
+
+Including the --data_sheet flag allows you to load in a metadata file. This is recommended, because it lets you put names on your samples. Otherwise SymPortal assigns random names, which isn't very helpful.  
+
+Be sure to include the full path to the metadata .xlsx file when running the loading.  
+
+In getting SymPortal sorted out, I also passed --debug to the data loading command, this makes the output more verbose and allows you to identify potential issues.
+
+<i>Data analysis:</i>
+This step looks for sets of recurring ITS2 sequences in the DataSetSamples and DataSet objects submitted to the analysis. 
+Output is a count table of predicted ITS2 type profiles (representative of putative taxa).
+
+<i>Terms used by SymPortal:</i>
+
+DataAnalysis - An analysis that was run on a collection of DataSet objects  
+
+AnalysisType - An ITS2 type profile found in one or more CladeCollection  
+
+CladeCollectionType - An abstract object used to link the AnalysisType and CladeCollection objects. This object therefore represents the link between data loading-based and data analysis-based objects  
+
+DIV = sequence used in the definition of ITS2 type profiles  
+
+
+For example, a typical AnalysisType name might look like C3-C3a-C3cc, where C3 is the most abundant sequence found and C3cc the least. In this example, C3 was the most abundant sequence (majSeq) of the three DIVs in each of the CladeCollection objects the AnalysisType was found in.
+The end result of a SymPortal analysis will be the creation of a set of SymPortal database sequences that represent the prediction of ITS2 type profiles within a collection of DataSet objects.
+ 
+ITS2 type profile is the taxonomic unit of SymPortal, it is a genotype representative of a putative taxa. Sequences used to define these type profiles are DIVs. 
+
+
+
+####Part III: Take counts file through mcmcOTU pipeline for PCAs and subsequent analyses (R environment)
+
+To download MCMCglmm package, only need to run this once:
+```{r eval=FALSE}
+source("http://bioconductor.org/biocLite.R") 
+biocLite( "MCMCglmm")
+```
+
+Install necessary packages:
+```{r message=FALSE, warning=FALSE}
+library(MCMC.OTU)
+library(vegan)
+```
+
+Here is the session info, containing information about versions used when running this code
+
+```{r}
+sessionInfo()
+```
+
+The counts file I am inputting here is the output from the SymPortal analysis (suffix = profiles.absolute.txt), reorganized so that it has the names of the profiles and the conditions as the header, and the counts information only. Check the output of head(dat) below to see organization
+```{r, cache=TRUE}
+setwd("/Users/hannahaichelman/Documents/BU/Courses/2019_Spring/EcolEvolGenomics/FinalProject_SymPortal/other_plotting/")
+dat <- read.csv(file="symportal_final_profiles_counts.csv", sep=",", header=TRUE, row.names=1)
+head(dat)
+```
+
+
+```{r}
+str(dat)
+```
+
+Convert site type to factor
+```{r}
+dat$site_type <- as.factor(dat$site_type)
+```
+
+Purge Outliers
+```{r echo=TRUE}
+goods=purgeOutliers(dat, count.columns=c(5:length(dat[1,]))) 
+```
+
+What is the proportion of samples with data for these OTUs?
+```{r}
+apply(goods[,5:length(goods[1,])],2,function(x){sum(x>0)/length(x)})
+```
+
+What percentage of global total counts each OTU represents?
+```{r}
+apply(goods[,5:length(goods[1,])],2,function(x){sum(x)/sum(goods[,5:length(goods[1,])])})
+```
+
+Stack the data; adjust otu.columns and condition.columns values for your dataset
+```{r}
+gss=otuStack(data=goods,count.columns=c(5:length(goods[1,])),condition.columns=c(1:4))
+```
+
+```{r}
+head(gss)
+
+```
+
+Now fitting the model. Replace the formula specified in 'fixed' with yours, add random effects if present. 
+See ?mcmc.otu() for these and other options. 
+Comparing by species here
+```{r eval=FALSE}
+mm=mcmc.otu(
+	fixed="spp",
+	data=gss,
+	nitt=3000,thin=50,burnin=2000 # a long MCMC chain to improve modeling of rare OTUs
+	)
+```
+
+```{r include=FALSE}
+mm=mcmc.otu(
+	fixed="spp",
+	data=gss,
+	nitt=3000,thin=50,burnin=2000 # a long MCMC chain to improve modeling of rare OTUs
+	)
+```
+
+selecting the OTUs that were modeled reliably
+(OTUs that are too rare for confident parameter estimates are discarded) 
+```{r}
+acpass=otuByAutocorr(mm,gss)
+```
+
+calculating differences and p-values between all pairs of factor combinations
+```{r}
+smm0=OTUsummary(mm,gss,otus=acpass,summ.plot=FALSE) 
+```
+
+adjusting p-values for multiple comparisons:
+```{r}
+smmA=padjustOTU(smm0)
+```
+
+significant OTUs at FDR<0.05:
+```{r}
+sigs=signifOTU(smmA)
+sigs
+```
+
+plotting the significant otu's by species
+```{r}
+smm1=OTUsummary(mm,gss,otus=sigs)
+```
+
+
+```{r}
+head(gss)
+gss$count=gss$count+1
+```
+
+Table of log10-fold changes and p-values: this info could go into supplementary info of an associated paper
+```{r}
+smmA$otuWise[sigs]
+```
+
+####Now on to PCA
+
+Need to remove any samples that have 0 counts for any ITS2 type, because you can't log transform 0's
+```{r}
+goods.no0 <- goods[rowSums(goods[,c(5:21)])!=0, ]
+```
+
+Create concatenated site name_site type condition for plotting
+```{r}
+goods.no0<-cbind(goods.no0[0:4],"sitename_type"=paste(goods.no0$site_name,goods.no0$site_type, sep="_"),goods.no0[5:ncol(goods.no0)])  
+```
+
+Creating a log-transfromed normalized dataset for PCA:
+```{r}
+nl=startedLog(data=goods.no0,count.columns=6:length(names(goods.no0)), logstart=1)
+#head(nl)
+goods.dist=vegdist(nl, method="bray")
+goods.pcoa=pcoa(goods.dist)
+```
+
+Set up PCA
+```{r}
+pcp=prcomp(nl, retx=TRUE, center=TRUE)
+scores=goods.pcoa$vectors
+loadings=goods.pcoa$rotation
+summary(goods.pcoa)
+conditions=goods.no0[,1:5]
+# summary(pcp)
+# head(pcp)
+```
+
+#####Plots
+
+Plotting by species across all sites, we see an interesting separation along the first principal component (not a final figure, just exploratory).
+
+```{r}
+margin=0.01
+plot(scores[,1], scores[,2],type="n",
+	# xlim=c(min(scores[,1])-margin,max(scores[,1])+margin),
+	# xlim=c(-0.04-margin, 0.25+margin),
+	# ylim=c(min(scores[,2])-margin,max(scores[,2])+margin),
+	mgp=c(2.3,1,0),
+	xlab=paste("PC1 (",round(summary(pcp)$importance[2,1]*100,1),"%)",sep=""),
+	ylab=paste("PC2 (",round(summary(pcp)$importance[2,2]*100,1),"%)",sep=""))
+	# main="PCA colored by Environment")
+points(scores[conditions$spp=="pstr",1],scores[conditions$spp=="pstr",2], pch = 16, col="red", cex=1)
+points(scores[conditions$spp=="ssid",1],scores[conditions$spp=="ssid",2], pch=16, col="orange", cex=1)
+points(scores[conditions$spp=="srad",1],scores[conditions$spp=="srad",2], pch=16, col="yellow", cex=1)
+text(0,0.4,labels="**species, Adonis p=0.001")
+legend("topleft", c("P. strigosa","S. siderea", "S. radians"), col=c("red", "orange", "yellow"), pch=c(16, 16,16), cex=1)
+
+```
+
+PERMANOVA for effect of species:
+```{r}
+adonis(scores~spp,data=conditions,method="euclidean")  
+```
+significant effect of species  
+
+
+Plotting by temperature environment across all species (not a final figure, just exploratory)
+
+```{r}
+margin=0.01
+plot(scores[,1], scores[,2],type="n",
+	# xlim=c(min(scores[,1])-margin,max(scores[,1])+margin),
+	# xlim=c(-0.04-margin, 0.25+margin),
+	# ylim=c(min(scores[,2])-margin,max(scores[,2])+margin),
+	mgp=c(2.3,1,0),
+	xlab=paste("PC1 (",round(summary(pcp)$importance[2,1]*100,1),"%)",sep=""),
+	ylab=paste("PC2 (",round(summary(pcp)$importance[2,2]*100,1),"%)",sep=""))
+	# main="PCA colored by Environment")
+points(scores[conditions$site_type=="1",1],scores[conditions$site_type=="1",2], pch = 16, col="skyblue2", cex=1)
+points(scores[conditions$site_type=="2",1],scores[conditions$site_type=="2",2], pch=16, col="gold", cex=1)
+points(scores[conditions$site_type=="3",1],scores[conditions$site_type=="3",2], pch=16, col="red", cex=1)
+text(0,0.4,labels="**site_type, Adonis p=0.001")
+legend("topleft", c("1-Low","2-Mod", "3-High"), col=c("skyblue2", "gold", "red"), pch=c(16, 16,16), cex=1)
+
+```
+
+
+PERMANOVA for effect of site_type:
+```{r}
+adonis(scores~site_type,data=conditions,method="euclidean")  
+```
+significant effect of site_type  
+
+
+
+Use biplot function to look at loadings (by symbiont types) for all samples. This shows that we have one interesting intragenomic variant of type C separating our samples along the first principle component
+```{r}
+rda<-rda(nl)
+biplot(rda, 
+       cex=.8,
+       xlab=paste("PC1 (",round(summary(pcp)$importance[2,1]*100,1),"%)",sep=""),
+       ylab=paste("PC2 (",round(summary(pcp)$importance[2,2]*100,1),"%)",sep=""),
+       display = c("sites","species"),
+       type = c("text","points"),
+       col = c("black","black"))
+ordihull(rda, group=goods.no0$spp, col=c("red","orange","gold"))
+text(2,3,labels="**species, Adonis p=0.001")
+legend("topright",  col=c("red","orange","gold"), lty=1, lwd=2,legend=c("P. strigosa","S. radians","S. siderea"))
+```
+
+Figure 1. Principal components analysis (PCA) plot of Symbiodiniaceae communities by species. Adonis p-value indicates results of PERMANOVA tests. Percentages on each axis indicate the amount of variation explained by each axis. Black arrows indicate PCA loadings showing the magnitude and direction of the effect of each OTU (or ITS2 type) on the total variance, highlighting the effect of the C1 variant in the separation observed along the first principal component.  
+
+
+
+
+Plotting by species across all site names and types (concatenated).
+
+Note that this is not a final figure, just wanted to see if corals from a particular combined site name (latitude) and thermal environment type housed the variant of C that is creating the separation along the first principal component in the figures above. It isn't!
+
+```{r}
+margin=0.01
+plot(scores[,1], scores[,2],type="n",
+     # xlim=c(min(scores[,1])-margin,max(scores[,1])+margin),
+     # xlim=c(-0.04-margin, 0.25+margin),
+     # ylim=c(min(scores[,2])-margin,max(scores[,2])+margin),
+     mgp=c(2.3,1,0),
+     xlab=paste("PC1 (",round(summary(pcp)$importance[2,1]*100,1),"%)",sep=""),
+     ylab=paste("PC2 (",round(summary(pcp)$importance[2,2]*100,1),"%)",sep=""))
+# main="PCA colored by Environment")
+points(scores[conditions$sitename_type=="belize_1",1],scores[conditions$sitename_type=="belize_1",2], pch = 15, col="dodgerblue", cex=1)
+points(scores[conditions$sitename_type=="belize_3",1],scores[conditions$sitename_type=="belize_3",2], pch=15, col="dodgerblue3", cex=1)
+points(scores[conditions$sitename_type=="dangriga_1",1],scores[conditions$sitename_type=="dangriga_1",2], pch=16, col="orange", cex=1)
+points(scores[conditions$sitename_type=="dangriga_3",1],scores[conditions$sitename_type=="dangriga_3",2], pch = 16, col="orange3", cex=1)
+points(scores[conditions$sitename_type=="placencia_1",1],scores[conditions$sitename_type=="placencia_1",2], pch=17, col="lightsalmon", cex=1)
+points(scores[conditions$sitename_type=="placencia_2",1],scores[conditions$sitename_type=="placencia_2",2], pch=17, col="lightsalmon3", cex=1)
+points(scores[conditions$sitename_type=="placencia_3",1],scores[conditions$sitename_type=="placencia_3",2], pch=17, col="lightsalmon4", cex=1)
+points(scores[conditions$sitename_type=="sapodilla_1",1],scores[conditions$sitename_type=="sapodilla_1",2], pch = 18, col="brown1", cex=1)
+points(scores[conditions$sitename_type=="sapodilla_2",1],scores[conditions$sitename_type=="sapodilla_2",2], pch=18, col="brown3", cex=1)
+points(scores[conditions$sitename_type=="sapodilla_3",1],scores[conditions$sitename_type=="sapodilla_3",2], pch=18, col="brown4", cex=1)
+legend("topleft", c("Belize_1","Belize_3", "Dangriga_1", "Dangriga_3", "Placencia_1", "Placencia_2", "Placencia_3", "Sapodilla_1", "Sapodilla_2", "Sapodilla_3"), col=c("dodgerblue", "dodgerblue3", "orange", "orange3", "lightsalmon","lightsalmon3","lightsalmon4","brown1","brown3","brown4"), pch=c(15, 15,16, 16,17,17,17,18,18,18), cex=.8)
+```
+
+PERMANOVA for effect of combo of site type and name:
+
+```{r}
+adonis(scores~sitename_type,data=conditions,method="euclidean")  
+```
+
+significant effect of sitename_type
+
+
+Now let's look at plots by site type (within species):
+
+Split by species:
+```{r}
+goods.no0_ssid <- subset(goods.no0, spp=="ssid")
+goods.no0_srad <- subset(goods.no0, spp=="srad")
+goods.no0_pstr <- subset(goods.no0, spp=="pstr")
+```
+
+First, Siderastrea siderea
+
+Creating a log-transfromed normalized dataset for PCA:
+```{r}
+nl=startedLog(data=goods.no0_ssid,count.columns=6:length(names(goods.no0_ssid)), logstart=1)
+#head(nl)
+goods.dist=vegdist(nl, method="bray")
+goods.pcoa=pcoa(goods.dist)
+```
+
+PCA:
+```{r}
+pcp=prcomp(nl, retx=TRUE, center=TRUE)
+scores=goods.pcoa$vectors
+loadings=goods.pcoa$rotation
+#summary(goods.pcoa)
+conditions=goods.no0_ssid[,1:5]
+```
+
+Now plot SSID PCA:
+```{r}
+margin=0.01
+plot(scores[,1], scores[,2],type="n",
+     # xlim=c(min(scores[,1])-margin,max(scores[,1])+margin),
+     # xlim=c(-0.04-margin, 0.25+margin),
+     # ylim=c(min(scores[,2])-margin,max(scores[,2])+margin),
+     mgp=c(2.3,1,0),
+     xlab=paste("PC1 (",round(summary(pcp)$importance[2,1]*100,1),"%)",sep=""),
+     ylab=paste("PC2 (",round(summary(pcp)$importance[2,2]*100,1),"%)",sep=""))
+# main="PCA colored by Environment")
+points(scores[conditions$site_type=="1",1],scores[conditions$site_type=="1",2], pch = 16, col="skyblue2", cex=1)
+points(scores[conditions$site_type=="2",1],scores[conditions$site_type=="2",2], pch=16, col="gold", cex=1)
+points(scores[conditions$site_type=="3",1],scores[conditions$site_type=="3",2], pch=16, col="red", cex=1)
+text(-0.1,0.4, labels="**site_type, Adonis p=0.001")
+# l.x <- loadings[,1]*10
+# l.y <- loadings[,2]*10
+# arrows(x0=0, y0=0, x1=l.x, y1=l.y, col="black", length=0.15, lwd=1.5)
+legend("topleft", c("1-Low","2-Mod", "3-High"), col=c("skyblue2", "gold", "red"), pch=c(16, 16,16), cex=1)
+title("Siderastrea siderea")
+```
+
+Figure 2. Principal components analysis (PCA) plot of Symbiodiniaceae communities within <i>Siderastrea siderea</i> by site type. Adonis p-value indicates results of PERMANOVA tests. Light blue = low temperature and variability environment, yellow = moderate temperature and variability environment, and red = high temperature and variability environment (corresponding to Baumann et al. 2017's 1-LowTP, 2-ModTP, and 3-HighTP). Percentages on each axis indicate the amount of variation explained by each axis. 
+
+
+
+
+SSID PERMANOVA for effect of combo of site type and name:
+```{r}
+adonis(scores~site_type,data=conditions,method="euclidean")  
+```
+significant effect of site_type
+
+
+Now, Siderastrea radians
+
+Creating a log-transfromed normalized dataset for PCA:
+```{r}
+nl=startedLog(data=goods.no0_srad,count.columns=6:length(names(goods.no0_srad)), logstart=1)
+#head(nl)
+goods.dist=vegdist(nl, method="bray")
+goods.pcoa=pcoa(goods.dist)
+```
+
+PCA:
+```{r}
+pcp=prcomp(nl, retx=TRUE, center=TRUE)
+scores=goods.pcoa$vectors
+loadings=goods.pcoa$rotation
+#summary(goods.pcoa)
+conditions=goods.no0_srad[,1:5]
+```
+
+Now plot SRAD PCA:
+```{r}
+margin=0.01
+plot(scores[,1], scores[,2],type="n",
+     # xlim=c(min(scores[,1])-margin,max(scores[,1])+margin),
+     # xlim=c(-0.04-margin, 0.25+margin),
+     # ylim=c(min(scores[,2])-margin,max(scores[,2])+margin),
+     mgp=c(2.3,1,0),
+     xlab=paste("PC1 (",round(summary(pcp)$importance[2,1]*100,1),"%)",sep=""),
+     ylab=paste("PC2 (",round(summary(pcp)$importance[2,2]*100,1),"%)",sep=""))
+# main="PCA colored by Environment")
+points(scores[conditions$site_type=="1",1],scores[conditions$site_type=="1",2], pch = 16, col="skyblue2", cex=1)
+points(scores[conditions$site_type=="2",1],scores[conditions$site_type=="2",2], pch=16, col="gold", cex=1)
+points(scores[conditions$site_type=="3",1],scores[conditions$site_type=="3",2], pch=16, col="red", cex=1)
+text(0.2,0.4, labels="site_type, Adonis p=0.1")
+# l.x <- loadings[,1]*10
+# l.y <- loadings[,2]*10
+# arrows(x0=0, y0=0, x1=l.x, y1=l.y, col="black", length=0.15, lwd=1.5)
+legend("topleft", c("1-Low","2-Mod", "3-High"), col=c("skyblue2", "gold", "red"), pch=c(16, 16,16), cex=1)
+title("Siderastrea radians")
+```
+
+Figure 3. Principal components analysis (PCA) plot of Symbiodiniaceae communities within <i>Siderastrea radians</i> across thermal regimes. Light blue = low temperature and variability environment, yellow = moderate temperature and variability environment, and red = high temperature and variability environment (corresponding to Baumann et al. 2017's 1-LowTP, 2-ModTP, and 3-HighTP). Adonis p-value indicates results of PERMANOVA tests. Percentages on each axis indicate the amount of variation explained by each axis. 
+
+
+
+SRAD PERMANOVA for effect of combo of site type and name:
+```{r}
+adonis(scores~site_type,data=conditions,method="euclidean")  
+```
+non-significant effect of site_type
+
+
+And last but not least, Pseudodiploria strigosa
+
+Creating a log-transfromed normalized dataset for PCA:
+```{r}
+nl=startedLog(data=goods.no0_pstr,count.columns=6:length(names(goods.no0_pstr)), logstart=1)
+#head(nl)
+goods.dist=vegdist(nl, method="bray")
+goods.pcoa=pcoa(goods.dist)
+```
+
+PCA:
+```{r}
+pcp=prcomp(nl, retx=TRUE, center=TRUE)
+scores=goods.pcoa$vectors
+loadings=goods.pcoa$rotation
+#summary(goods.pcoa)
+conditions=goods.no0_pstr[,1:5]
+```
+
+Now plot PSTR PCA:
+```{r}
+margin=0.01
+plot(scores[,1], scores[,2],type="n",
+     # xlim=c(min(scores[,1])-margin,max(scores[,1])+margin),
+     # xlim=c(-0.04-margin, 0.25+margin),
+     # ylim=c(min(scores[,2])-margin,max(scores[,2])+margin),
+     mgp=c(2.3,1,0),
+     xlab=paste("PC1 (",round(summary(pcp)$importance[2,1]*100,1),"%)",sep=""),
+     ylab=paste("PC2 (",round(summary(pcp)$importance[2,2]*100,1),"%)",sep=""))
+# main="PCA colored by Environment")
+points(scores[conditions$site_type=="1",1],scores[conditions$site_type=="1",2], pch = 16, col="skyblue2", cex=1)
+points(scores[conditions$site_type=="2",1],scores[conditions$site_type=="2",2], pch=16, col="gold", cex=1)
+points(scores[conditions$site_type=="3",1],scores[conditions$site_type=="3",2], pch=16, col="red", cex=1)
+text(0.2,0.4, labels="*site_type, Adonis p=0.03")
+# l.x <- loadings[,1]*10
+# l.y <- loadings[,2]*10
+# arrows(x0=0, y0=0, x1=l.x, y1=l.y, col="black", length=0.15, lwd=1.5)
+legend("topleft", c("1-Low","2-Mod", "3-High"), col=c("skyblue2", "gold", "red"), pch=c(16, 16,16), cex=1)
+title("Pseudodiploria strigosa")
+```
+
+Figure 4. Principal components analysis (PCA) plot of Symbiodiniaceae communities within <i>Pseudodiploria strigosa</i> across thermal regimes. Light blue = low temperature and variability environment, yellow = moderate temperature and variability environment, and red = high temperature and variability environment (corresponding to Baumann et al. 2017's 1-LowTP, 2-ModTP, and 3-HighTP). Adonis p-value indicates results of PERMANOVA tests. Percentages on each axis indicate the amount of variation explained by each axis.  
+
+
+
+
+PSTR PERMANOVA for effect of combo of site type and name:
+```{r}
+adonis(scores~site_type,data=conditions,method="euclidean")  
+```
+
+significant effect of site_type
+
+
+###Conclusion
+Overall, the SymPortal analysis presented here found more ITS2 diversity in the same corals samples than the original analysis from Baumann et al (2017). Here, I identified 17 high-quality ITS2 variants across the three species and 10 sites compared to the 10 identified in Baumann et al (2017). This difference could be attributed to Baumann et al. (2017) collapsing all C Symbiodiniaceae OTUs  into one group, but further investigation is needed to confirm this. Interestingly, I found one particular intragenomic variant of Symbiodiniaceae C that is separating samples more than shown in published figures from Baumann's original paper. We find that ITS2 communities were signifiantly different by species, but that within species only <i>Siderastrea siderea</i> and <i>Pseudodiploria strigosa</i> had significantly different ITS2 communities by thermal environment. This is in contrast to the findings of Baumann et al. (2017), which found that Symbiodiniaceae community correlated with thermal regime in <i>S. siderea</i>, but not <i>S. radians</i> or <i>P. strigosa</i>. In conclusion, after getting SymPortal functioning properly on one's local machine, this method seems to be effective in detecting ITS2 variants that are not determined using previous methods. 
